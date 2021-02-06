@@ -1,5 +1,6 @@
 const { ProxyProvider } = require('elrondjs')
 const fetch = require("node-fetch");
+const { send } = require('process');
 
 const provider = new ProxyProvider('https://api.elrond.com')
 
@@ -17,16 +18,18 @@ class Streamer {
 };
 
 class LastTransaction {
-    constructor(valueLastTx, dataTx, statusLastTx, lastSender, herotagLastSender){
+    constructor(valueLastTx, dataTx, statusLastTx, lastSender, herotagLastSender, txHash){
         this.valueLastTx = valueLastTx
         this.statusLastTx = statusLastTx
         this.lastSender = lastSender
         this.dataTx = dataTx
         this.herotagLastSender = herotagLastSender
+        this.txHash = txHash
     }
 };                
 
-let currentAddress = "erd1fdq6nmaa62c0cz8f299ycsz0q8lyfr7q87gqpjwnweux5uu9pqcq68ejhz";  // Put your elrond public address
+// Put your elrond public address
+let currentAddress = "erd1fdq6nmaa62c0cz8f299ycsz0q8lyfr7q87gqpjwnweux5uu9pqcq68ejhz";  
 let currentStreamer = new Streamer(currentAddress, null, null, null);
 let queue = new Queue();
 
@@ -54,6 +57,12 @@ function shortHerotag(strHerotag){
         return '';
 }
 
+function printInfoSender(sender){
+    console.log(sender.herotagLastSender)
+    console.log(sender.valueLastTx)
+    console.log(sender.dataTx)
+}
+
 async function getUserByAddress(){
     try {
         let addressStreamer = await provider.getAddress(currentAddress)
@@ -75,17 +84,17 @@ async function fetchLastTxReceive(){
         let address = await provider.getAddress(lastTransactionViewerAddress)
 
         currentStreamer.lastTransaction = new LastTransaction( convertToRealBalance(dataLastTxReceive[0]['value']),
-         decodeBase64(dataLastTxReceive[0]['data']), dataLastTxReceive[0]['status'], dataLastTxReceive[0]['sender'], shortHerotag(address.username));
+         decodeBase64(dataLastTxReceive[0]['data']), dataLastTxReceive[0]['status'], dataLastTxReceive[0]['sender'], shortHerotag(address.username), dataLastTxReceive[0]['txHash']);
 
         if(queue.isEmpty()){
-            queue.enqueue(dataLastTxReceive[0]['txHash']);
-            console.log(currentStreamer)
+            queue.enqueue(currentStreamer.lastTransaction);
+            printInfoSender(queue.peek())
         }
         else{
-            if(queue.peek() != dataLastTxReceive[0]['txHash']){
-                queue.enqueue(dataLastTxReceive[0]['txHash']);
+            if(queue.peek().txHash != currentStreamer.lastTransaction.txHash && currentStreamer.lastTransaction.statusLastTx == 'success'){
+                queue.enqueue(currentStreamer.lastTransaction);
                 queue.dequeue();
-                console.log(currentStreamer)
+                printInfoSender(queue.peek())
             }
         }
     } catch (error) {
