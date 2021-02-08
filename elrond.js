@@ -1,19 +1,14 @@
 const { ProxyProvider } = require('elrondjs')
 const fetch = require("node-fetch");
-const { send } = require('process');
+const Queue = require ('./Queue.js')
 
-const provider = new ProxyProvider('https://api.elrond.com')
-
-class Queue {
-    constructor() { var a = [], b = 0; this.getLength = function () { return a.length - b; }; this.isEmpty = function () { return 0 == a.length; }; this.enqueue = function (b) { a.push(b); }; this.dequeue = function () { if (0 != a.length) { var c = a[b]; 2 * ++b >= a.length && (a = a.slice(b), b = 0); return c; } }; this.peek = function () { return 0 < a.length ? a[b] : void 0; }; }
-};
+const provider = new ProxyProvider('https://api.elrond.com/')
 
 class Streamer {
-    constructor(currentAddress, herotag, balance, lastTransaction) {
+    constructor(currentAddress, herotag, balance) {
         this.currentAddress = currentAddress
         this.herotag = herotag
         this.balance = balance
-        this.lastTransaction = lastTransaction
     }
 };
 
@@ -29,9 +24,11 @@ class LastTransaction {
 };                
 
 // Put your elrond public address
-let currentAddress = "erd1fdq6nmaa62c0cz8f299ycsz0q8lyfr7q87gqpjwnweux5uu9pqcq68ejhz";  
+let currentAddress = "erd1f72agueyk6n2377dwun6argmxt7s6vse96g94m62j23c7m84vygsy0je7u";  
 let currentStreamer = new Streamer(currentAddress, null, null, null);
-let queue = new Queue();
+let newArrayTransaction = new Array(10);
+let oldArrayTransaction = new Array();
+let lastTransaction = new Queue(10);
 
 function decodeBase64(strToDecode){
     let dataReceive;
@@ -57,10 +54,12 @@ function shortHerotag(strHerotag){
         return '';
 }
 
-function printInfoSender(sender){
-    console.log(sender.herotagLastSender)
-    console.log(sender.valueLastTx)
-    console.log(sender.dataTx)
+async function printInfoSender(sender){
+        console.log(sender.herotagLastSender+'\n');
+        console.log(sender.valueLastTx+'\n');
+        console.log(sender.dataTx+'\n');
+        console.log(sender.txHash+'\n');
+        lastTransaction.dequeue();
 }
 
 async function getUserByAddress(){
@@ -74,33 +73,57 @@ async function getUserByAddress(){
     }
 }
 
+function arraysEqual(a, b) {
+    if (a === b) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+  
+    // If you don't care about the order of the elements inside
+    // the array, you should sort both arrays here.
+    // Please note that calling sort on an array will modify that array.
+    // you might want to clone your array first.
+  
+    for (let i = 0; i < a.length; ++i) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
 async function fetchLastTxReceive(){
     try {
-        await getUserByAddress(currentStreamer)
-        const resultsLastTx = await fetch('https://api.elrond.com/transactions?receiver='+currentAddress+'&from=0&size=1')
+        await getUserByAddress(currentStreamer);
+        const resultsLastTx = await fetch('https://api.elrond.com/transactions?receiver=' + currentAddress + '&from=0&size=10');
         const dataLastTxReceive = await resultsLastTx.json();
 
-        let lastTransactionViewerAddress = await dataLastTxReceive[0]['sender'];
-        let address = await provider.getAddress(lastTransactionViewerAddress)
-
-        currentStreamer.lastTransaction = new LastTransaction( convertToRealBalance(dataLastTxReceive[0]['value']),
-         decodeBase64(dataLastTxReceive[0]['data']), dataLastTxReceive[0]['status'], dataLastTxReceive[0]['sender'], shortHerotag(address.username), dataLastTxReceive[0]['txHash']);
-
-        if(queue.isEmpty()){
-            queue.enqueue(currentStreamer.lastTransaction);
-            printInfoSender(queue.peek())
+        for(let i = 0; i < 10; i++){
+            newArrayTransaction[i] = dataLastTxReceive[i]['txHash'];
         }
-        else{
-            if(queue.peek().txHash != currentStreamer.lastTransaction.txHash && currentStreamer.lastTransaction.statusLastTx == 'success'){
-                queue.enqueue(currentStreamer.lastTransaction);
-                queue.dequeue();
-                printInfoSender(queue.peek())
+
+        if (oldArrayTransaction.length == 0){
+            oldArrayTransaction = newArrayTransaction.slice();
+            console.log(oldArrayTransaction);
+        }
+
+        if(!arraysEqual(oldArrayTransaction, newArrayTransaction)){
+            let pos = newArrayTransaction.indexOf(oldArrayTransaction[0]);
+            console.log("Position: " + pos);
+            for(let i = pos; i > 0; i--){
+                let lastTransactionViewerAddress = dataLastTxReceive[i]['sender'];
+                let address = await provider.getAddress(lastTransactionViewerAddress);
+                lastTransaction.enqueue(new LastTransaction(convertToRealBalance(dataLastTxReceive[i]['value']),
+                decodeBase64(dataLastTxReceive[i]['data']), dataLastTxReceive[i]['status'], dataLastTxReceive[i]['sender'],
+                shortHerotag(address.username), dataLastTxReceive[i]['txHash']));
             }
+            oldArrayTransaction = newArrayTransaction.slice();
+        }
+
+        console.log("Taille: " + lastTransaction.getLength());
+        if(!lastTransaction.isEmpty()){
+            printInfoSender(lastTransaction.peek());
         }
     } catch (error) {
         console.log(error);
     }
 }
 
-setInterval(fetchLastTxReceive, 1000);
-
+setInterval(fetchLastTxReceive, 2000);
